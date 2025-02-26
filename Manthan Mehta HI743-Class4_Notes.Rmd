@@ -1,0 +1,164 @@
+---
+title: "Linear Regression in R"
+author: "Manthan Mehta"
+date: "2025-02-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+
+installed.packages("ISLR2")
+library(ISLR2)
+```
+
+# BOSTON DATASET ANALYSIS
+
+## Objective
+
+### How can we predict median value of owner-occupied homes using the lower status of population metric
+
+\<What are we analyzing?Why ?What insighy can we gain from this?\
+
+### Data Understand and preparation
+
+insight
+
+### Data Exploration
+
+```{r load.data}
+data(Boston)
+glimpse(Boston)
+
+
+summary(Boston)
+```
+
+```{r missing_value}
+missing_values = Boston %>% 
+  summarise(across(everything(),~sum(is.na(.))))
+print(missing_values)
+
+```
+
+## Train-Test Split
+
+\<How does this technique aid our analysis, especially given new data?\>\
+
+```{r train_test}
+set.seed(123)  #reproducibilty
+Boston_split = Boston %>% 
+  mutate(id=row_number()) %>% 
+  sample_frac(0.75)
+
+Boston = Boston %>% mutate(id=row_number())
+
+train_data=Boston_split
+test_data=anti_join(Boston,Boston_split,by="id") # 25 remaining
+
+
+```
+
+### EDA
+
+What figures did we build and why what information did it convey? how is it important to the analysis
+
+```{r histogram for medv}
+ggplot(Boston,aes(x=medv))+
+  geom_histogram(fill="steelblue",binwidth = 2, color="white")+
+  labs(title = "Distribution of median home values",
+       x="Median values",
+       y="count")
+  
+```
+
+```{r LSTAT vs Medv scatterplot}
+ggplot(Boston,aes(x=lstat,y=medv))+
+  geom_point(alpha=0.6,color="blue")+
+  labs(title="Scatterplot:Lstat bs medv",
+       x="percent lower state populaton",
+       y="Median")
+
+```
+
+### Model Implementation and Explanation
+
+\<What model are we using -? Why does this model apply to the data?
+
+What are the pros and cons of this type of model?.
+
+### Perform simple linear regression on training data
+
+\<Describe the function and model fit
+
+```{r linear regression}
+lm.fit = lm(medv ~ lstat,data = train_data)
+summary(lm.fit)
+
+```
+
+### Could build a scatter plot with this regression line into it
+
+Apply model to test data
+
+\< could interpret the test MSE
+
+```{r apply model to test data}
+# Calculating Mean Squared Error (MSE)
+train_mse <- mean((train_data$medv - predict(lm.fit, train_data))^2)
+test_mse <- mean((test_data$medv - predict(lm.fit, test_data))^2)
+
+
+print(train_mse)
+print(test_mse)
+
+
+
+```
+
+### Simple linear regression and interprettion
+
+How good is this fit
+
+Perfroming linear regression multiple
+
+\<What question does this model answer?\>
+
+```{r}
+lm.multiple.fit = lm(medv~lstat + age+lstat*age,data = train_data)
+summary(lm.multiple.fit)
+```
+
+### Apply the model to test data
+
+```{r}
+
+train_mse=mean((train_data$medv - predict(lm.multiple.fit,train_data))^2)
+test_mse= mean((test_data$medv - predict(lm.multiple.fit,test_data))^2)
+print(train_mse)
+print(test_mse)
+
+```
+
+Multiple Linear Regression results and interpretation
+
+# NHANES Data Analysis
+
+## Objective
+
+### Please predict BMI using Age,SmokeNow and PhysActive for individuals betweeb the ages of 18 and 70
+
+Data Understanding and preparation
+
+Data loading
+
+```{r}
+library(NHANES)
+
+data(NHANES)
+SMOKERS = NHANES %>% 
+  select(BMI,Age,SmokeNow,PhysActive) %>% 
+  filter(Age >=18 & Age <=70)
+
+```
