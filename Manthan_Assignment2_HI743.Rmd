@@ -1,0 +1,517 @@
+---
+title: "Assignment 2 HI 743"
+author: "Manthan Mehta"
+date: "2025-03-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+
+installed.packages("ISLR2")
+library(ISLR2)
+```
+
+# Section 1 Statistical Analysis Report
+
+## Boston Data Analysis
+
+### Introduction & Objective
+
+The objective of this analysis is to explore the factors influencing median home prices (medv) in the Boston housing dataset. This study specifically examines the impact of the lower status population (lstat) and house age (age), along with their interaction effect, on housing prices. Additionally, we implement predictive modeling techniques to evaluate their performance in predicting house prices
+
+### Dataset Understanding & Preparation
+
+### Dataset Description
+
+The dataset consists of 506 observations and 12 predictor variables, along with the target variable (`medv`). Below is a description of each variable:
+
+-crim: Per capita crime rate by town.
+
+-zn: Proportion of residential land zoned for lots over 25,000 sq. ft.
+
+-indus: Proportion of non-retail business acres per town.
+
+-chas: Charles River dummy variable (1 if tract bounds river; 0 otherwise).
+
+-nox: Nitrogen oxides concentration (parts per 10 million).
+
+-rm: Average number of rooms per dwelling.
+
+-age: Proportion of owner-occupied units built prior to 1940.
+
+-dis: Weighted mean of distances to five Boston employment centers.
+
+-rad: Index of accessibility to radial highways.
+
+-tax: Full-value property tax rate per \$10,000.
+
+-pratio: Pupil-teacher ratio by town.
+
+-lstat: Percentage of lower-status population.
+
+-medv: Median value of owner-occupied homes in \$1000s (Target variable).
+
+### Summary Statistics of the dataset
+
+```{r}
+summary(Boston)
+```
+
+### Variables used in the analysis
+
+For this analysis, we focus on:
+
+-lstat(Percentage of lower-status population)
+
+-age (Proportion of owner-occupied units built before 1940)
+
+-lstate\*age (Interaction term)
+
+These variables were selected based on their potential impact on housing prices, which we explore through linear regression and interaction effects
+
+### Data Cleaning and Preprocessing
+
+1) Checking for any missing values-
+
+```{r}
+missing_values = Boston %>% summarise(across(everything(), ~sum(is.na(.))))
+print(missing_values)
+```
+
+No missing were found in the dataset
+
+2)Splitting Data into Training and Testing Sets:
+
+```{r}
+set.seed(123) 
+Boston_split = Boston %>% mutate(id=row_number()) %>% sample_frac(0.75)
+Boston = Boston %>% mutate(id=row_number())
+train_data = Boston_split
+test_data = anti_join(Boston, Boston_split, by="id")
+```
+
+75% of the data is used for training, and 25% for testing.
+
+### Exploratory Data Analysis:
+
+```{r histogram for medv}
+ggplot(Boston,aes(x=medv))+
+  geom_histogram(fill="steelblue",binwidth = 2, color="white")+
+  labs(title = "Distribution of median home values",
+       x="Median values",
+       y="count")
+```
+
+-The histogram indicates that the distribution of median home values is right-skewed, with most values ranging between \$15,000 and \$25,000. There is a noticeable peak at \$50,000, suggesting a possible upper capping of home values in the dataset.( maybe some prices were higher than 50000, but for this study they were capped at 50000\$)
+
+```{r LSTAT vs Medv scatterplot}
+ggplot(Boston,aes(x=lstat,y=medv))+
+  geom_point(alpha=0.6,color="blue")+
+  labs(title="Scatterplot:Lstat bs medv",
+       x="percent lower state populaton",
+       y="Median")
+```
+
+-The scatterplot reveals a strong negative correlation between lstat and medv. As the percentage of lower-status population increases, median home values decrease.
+
+-The relationship appears non-linear, suggesting that more complex models might better capture this trend.
+
+-Similar to the histogram, many points are capped at \$50,000, reinforcing the likeilihood of a capping issue in the dataset.
+
+### Model Implementation and Explanation
+
+### Simple linear Regression Model
+
+```{r}
+lm.fit = lm(medv ~ lstat,data = train_data)
+summary(lm.fit)
+```
+
+```{r}
+# Calculating Mean Squared Error (MSE)
+train_mse <- mean((train_data$medv - predict(lm.fit, train_data))^2)
+test_mse <- mean((test_data$medv - predict(lm.fit, test_data))^2)
+
+
+print(train_mse)
+print(test_mse)
+```
+
+Model summary:
+
+-Intercept = 34.52, meaning that if lstat were zero, the predicted median home value would be \$34,520.
+
+-Slope for lstat = -0.958, showing that for each 1% increase in the lower-status population , the median home value decreases by approximately \$958.
+
+-Residual Standard Error (RSE) = 6.131, indicating the typical prediction error in thousands of dollars.
+
+-Multiple R-squared = 0.561, meaning that 56.1% of the variability in home values can be explained by lstate variable.
+
+-F-statistic = 483.5, with a p-value \<2.2e-16, indicating that the model is highly significant.
+
+This suggests that lstat has a strong and statistically significant negative impact on home values.
+
+Mean Squared Error (MSE):
+
+-Training MSE: 37.39
+
+-Testing MSE: 41.86
+
+### Multiple Linear Regression model-
+
+```{r}
+lm.multiple.fit = lm(medv~lstat + age+lstat*age,data = train_data)
+summary(lm.multiple.fit)
+```
+
+```{r}
+train_mse=mean((train_data$medv - predict(lm.multiple.fit,train_data))^2)
+test_mse= mean((test_data$medv - predict(lm.multiple.fit,test_data))^2)
+print(train_mse)
+print(test_mse)
+```
+
+Model Summary:
+
+-Intercept = 34.90, meaning that if lstat and age were zero, the predicted median home value would be \$34,900.
+
+-Slope for lstat= -1.273, showing that an increase in lstat reduces medv significantly.
+
+-Slope for age= 0.014, which is not statistically significant (p = 0.513).
+
+-Interaction term = 0.00265, meaning that as houses get older, the impact of lstat on medv slightly weakens. However, this term is also not statistically significant (p = 0.195).
+
+-Residual Standard Error (RSE) = 6.078, indicating the typical prediction error in thousands of dollars.
+
+-Multiple R-squared = 0.571, meaning that 57.1% of the variability in home values can be explained by lstat, age, and their interaction.
+
+-F-statistic = 166.9, with a p-value \<2.2e-16, confirming that the model is highly significant.
+
+Mean Squared Error (MSE):
+
+-Training MSE: 36.55
+
+-Testing MSE: 40.68
+
+### Conclusion
+
+-The multiple regression model provides a slight improvement over the simple model, but the improvement is minimal.
+
+-The interaction effect is not significant, so age does not meaningfully modify the effect of lstate.
+
+-The slightly lower MSE and higher R² in the multiple model suggest a marginally better fit, but lstat alone remains a strong predictor of home values.
+
+### Limitations-
+
+-The dataset may suffer from truncation at \$50,000, potentially affecting predicions.
+
+-The model assumes a linear relationship, but the scatterplot suggests possible non-linerity.
+
+-Other important predictors like rm (number of rooms) or crim (crime rate) were not included, which could improve model accuracy.
+
+# Section 2: Follow Up Assignment
+
+```{r}
+# Loading necessary libraries
+library(tidyverse)
+library(NHANES)
+```
+
+### **Problem Definition & Justification** 
+
+The objective of this analysis is to predict Body Mass Index (BMI) using Age, Smoking Status (SmokeNow), and Physical Activity (Physactive) for individuals aged 18 to 70. BMI is a crucial health indicator associated with chronic diseases such as obesity, diabetes, and cardiovascular conditions. Understanding the relationship between age, lifestyle factors (smoking and physical activity), and BMI can help in developing targeted public health interventions
+
+```{r}
+# Loading the NHANES dataset
+data(NHANES)
+
+# Data Preparation: Selecting and filtering relevant data
+SMOKERS <- NHANES %>%
+  select(BMI, Age, SmokeNow, PhysActive) %>%
+  filter(Age >= 18 & Age <= 70)
+```
+
+### **Data Import, Cleaning, & Exploration** 
+
+Data Loading
+
+The dataset is extracted from the NHANES (National Health and Nutrition Examination Survey) database. The variables selected for analysis include:
+
+-BMI: Body Mass Index (kg/m\^2)
+
+-Age: Age of the individual (years)
+
+-SmokeNow: Current smoking status (Yes or No)
+
+-PhysActive: Physical activity status (Yes or No)
+
+### Summary Statistics
+
+```{r}
+summary(SMOKERS)
+```
+
+```{r}
+# Check for missing values
+missing_values <- SMOKERS %>%
+  summarise(across(everything(), ~sum(is.na(.))))
+print(missing_values)
+```
+
+```{r}
+
+# Removing all BMI values greater than 40 and missing BMI values
+SMOKERS <- SMOKERS %>%
+  filter(BMI <= 40 & !is.na(BMI))
+
+# Removing all rows where SmokeNow is missing
+SMOKERS <- SMOKERS %>%
+  filter(!is.na(SmokeNow))
+
+# Final checking for missing values
+missing_values <- SMOKERS %>%
+  summarise(across(everything(), ~sum(is.na(.))))
+print(missing_values)
+
+```
+
+```{r}
+# Splitting the dataset into training (75%) and testing (25%) sets
+set.seed(123) 
+SMOKERS <- SMOKERS %>% mutate(id = row_number())
+SMOKERS_split <- SMOKERS %>% sample_frac(0.75)
+
+train_data <- SMOKERS_split
+test_data <- anti_join(SMOKERS, SMOKERS_split, by = "id")
+```
+
+#### Handling Missing and Extreme Values
+
+BMI Cleaning:
+
+-Removed all BMI values greater than 40, as they were considered extreme outliers.
+
+-Removed all rows where BMI was missing to maintain data integrity.
+
+SmokeNow Cleaning:
+
+-Removed all rows where SmokeNow was missing to ensure consistency in categorical analysis.
+
+Final dataset was verified to ensure no missing values remain.
+
+#### Splitting the Dataset into Training and Testing Sets
+
+To evaluate model performance, the cleaned dataset was split into:
+
+-75% Training Data: Used to train the predictive models.
+
+-25% Testing Data: Used to assess the model’s performance on unseen data.
+
+### Exploratory Data Analysis
+
+```{r Histogram of BMI}
+ggplot(SMOKERS, aes(x = BMI)) +
+  geom_histogram(fill = "steelblue", binwidth = 1, color = "white") +
+  labs(title = "Distribution of BMI",
+       x = "Body Mass Index (BMI)",
+       y = "Count")
+
+```
+
+The histogram of BMI shows a roughly normal distribution, with most values ranging between 20 and 35.
+
+The distribution is slightly right-skewed, meaning there are some individuals with higher BMI values.
+
+The highest concentration of individuals has a BMI between 25 and 30, which falls within the overweight category.
+
+```{r}
+ggplot(SMOKERS, aes(x = SmokeNow, y = BMI, fill = SmokeNow)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of BMI by Smoking Status",
+       x = "Current Smoker",
+       y = "BMI")
+
+```
+
+This visualization compares BMI distributions between smokers and non-smokers.
+
+The median BMI for smokers appears slightly lower compared to non-smokers.
+
+The spread of BMI is similar across both groups, with overlapping interquartile ranges (IQRs).
+
+This suggests that smoking status alone may not have a strong impact on BMI, though further statistical testing is needed
+
+```{r}
+SMOKERS %>%
+  group_by(PhysActive) %>%
+  summarise(Avg_BMI = mean(BMI, na.rm = TRUE)) %>%
+  ggplot(aes(x = PhysActive, y = Avg_BMI, fill = PhysActive)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Average BMI by Physical Activity",
+       x = "Physically Active",
+       y = "Average BMI") +
+  theme_minimal()
+```
+
+This bar chart shows the mean BMI for physically active vs. inactive individuals.
+
+Non-active individuals tend to have slightly higher BMI on average than active individuals.
+
+This supports the hypothesis that physical activity contributes to lower BMI, though further statistical validation is required.
+
+```{r}
+ggplot(SMOKERS, aes(x = cut(Age, breaks = seq(18, 70, by = 5)), y = BMI, fill = SmokeNow)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of BMI by Age Groups",
+       x = "Age Groups",
+       y = "BMI") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+Smokers tend to have slightly lower BMI than non-smokers across age groups.
+
+Variability in BMI increases with age, particularly among non-smokers
+
+### Model Selection & Justification
+
+```{r simple linear regression model}
+
+lm_simple <- lm(BMI ~ PhysActive, data = train_data)
+
+summary(lm_simple)
+
+```
+
+```{r MSE for simple linear model}
+train_mse_simple <- mean((train_data$BMI - predict(lm_simple, train_data))^2)
+test_mse_simple <- mean((test_data$BMI - predict(lm_simple, test_data))^2)
+
+# Print MSE values
+print(train_mse_simple)
+print(test_mse_simple)
+```
+
+The simple linear regression model evaluates whether physical activity significantly impacts BMI. The results indicate:
+
+-Intercept (28.33): Represents the predicted BMI for inactive individuals.
+
+-PhysActive Coefficient (-1.3751) Indicates that physically active individuals, on average, have a 1.38 unit lower BMI than inactive individuals, with high statistical significance (p\<0.001).
+
+-Residual Standard Error (5.078): Suggests that the model’s predictions vary by approximately 5 BMI units.
+
+-R² (0.018): The model explains 1.8% of BMI variance, indicating that physical activity alone is significant but not sufficient to explain BMI variation.
+
+-   Mean Squared Error (MSE):
+
+    Training MSE = 25.76
+
+    Testing MSE = 25.99
+
+    The similarity between training and testing MSE values suggests good generalization, but BMI is influenced by additional factors beyond physical activity.
+
+```{r multiple linear regression model}
+
+lm_multiple <- lm(BMI ~ Age + SmokeNow + PhysActive, data = train_data)
+
+summary(lm_multiple)
+
+```
+
+```{r}
+# Calculating Mean Squared Error (MSE) for Training and Testing Data
+train_mse_multiple <- mean((train_data$BMI - predict(lm_multiple, train_data))^2)
+test_mse_multiple <- mean((test_data$BMI - predict(lm_multiple, test_data))^2)
+
+
+print(train_mse_multiple)
+print(test_mse_multiple)
+
+```
+
+The multiple regression model incorporates additional predictors. The results indicate:
+
+-   Intercept (27.86): The estimated BMI for individuals who do not smoke and are not physically active.
+
+-   Age Coefficient (0.0278): BMI increases by 0.028 units per year, suggesting a slight upward trend with age.
+
+-   SmokeNow Coefficient (-1.38826): Smokers, on average, have a 1.39 unit lower BMI than non-smokers (p\<0.001).
+
+-   PhysActive Coefficient (-1.5272): Being physically active is associated with a 1.53 unit decrease in BMI (p\<0.001).
+
+-   Residual Standard Error (5.005): The predictions are, on average, 5 BMI units off from actual values.
+
+-   R² (0.047): The model explains 4.7% of BMI variance, improving over the simple model.
+
+-   Mean Squared Error (MSE):
+
+    Training MSE = 24.997
+
+    Testing MSE = 25.367
+
+### Interaction model( using age and smoking status)
+
+```{r}
+lm_interaction <- lm(BMI ~ Age * SmokeNow, data = train_data)
+
+summary(lm_interaction)
+
+```
+
+```{r}
+# Calculating Mean Squared Error (MSE) for Training and Testing Data
+train_mse_interaction <- mean((train_data$BMI - predict(lm_interaction, train_data))^2)
+test_mse_interaction <- mean((test_data$BMI - predict(lm_interaction, test_data))^2)
+
+
+print(train_mse_interaction)
+print(test_mse_interaction)
+
+```
+
+Age positively influences BMI (0.0586 per year, p\<0.001).
+
+Smokers have a slightly higher intercept BMI, but the effect diminishes with age (p=0.0142).
+
+R² (0.029): The model explains 2.9% of BMI variance, indicating a weak interaction effect.
+
+MSE:
+
+-   Training = 25.465
+
+-   Testing = 25.228
+
+### **Results & Performance Evaluation**
+
+-   Simple Linear Regression (BMI\~PhysActive):
+
+    This model has the highest MSE (25.99) and lowest R\^2(0.018), indicating that physical activity alone is a weak predictor of BMI.
+
+-   Multiple Regression (BMI\~Age+SmokeNow+PhysActive):
+
+    This model has the lowest MSE (25.367) and highest R\^2 (0.047), making it the best-performing model in explaining BMI variance.
+
+-   Interaction Model (BMI\~Age\*SmokeNow):
+
+    The interaction model slightly improves on the simple model but performs worse than the multiple regression model, suggesting that the interaction effect of smoking and age is weak.
+
+### Conclusion & Discussion
+
+-   Key Insights:
+
+    Physical activity and smoking significantly impact BMI, with active individuals and smokers having lower BMI.
+
+    Age has a positive association with BMI, meaning BMI slightly increases as people age.
+
+    The multiple regression model provides the best prediction accuracy, capturing more variance in BMI.
+
+    The interaction model suggests that smoking modifies the effect of age on BMI, but the effect size is small.
+
+-   Limitations & Future Work:
+
+    The dataset does not account for dietary habits, socioeconomic status, or genetics, which are key BMI determinants.
+
+    More advanced models such as logistic regression or machine learning could improve predictive performance.
