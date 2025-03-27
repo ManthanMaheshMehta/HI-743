@@ -1,0 +1,277 @@
+---
+title: "Classification models"
+author: "Manthan Mehta"
+date: "2025-02-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(nnet)
+library(ISLR2)
+```
+
+# 1.Intro
+<introduce the models being used >
+
+# Data
+< describe the data>
+
+```{r}
+data = Default
+str(data)
+```
+## 2.1 Visualization
+
+### Distribution of Balance
+<What does the figure mean
+
+```{r balance distribution}
+ggplot(data,aes(x=balance,fill=default))+
+  geom_histogram(bins = 30,alpha=0.7,position = 'identity' )+
+  labs(title = "distribution of balance by default status",
+       x="Balance",
+       y="Count")
+
+
+```
+
+### income
+
+```{r}
+ggplot(data, aes(x = income, fill = default)) +
+  geom_histogram(bins = 30, alpha = 0.7, position = 'identity') +
+  labs(title = "Distribution of Income by Default Status",
+       x = "Income",
+       y = "Count")
+
+
+```
+```{r}
+ggplot(data, aes(x = income, fill = student)) +
+  geom_histogram(bins = 30, alpha = 0.7, position = 'identity') +
+  labs(title = "Distribution of Income by Student Status",
+       x = "Income",
+       y = "Count")
+```
+
+
+
+###student status by default
+
+```{r}
+ggplot(data,aes(x=student,fill=default))+
+  geom_bar()+
+  labs(title="Default statues bu student statues")
+  
+```
+###logistics regression
+###fitting the model
+
+```{r}
+logit_model=glm(default~balance,data=data,family = binomial)
+summary(logit_model)
+```
+```{r}
+data$predicted_prob = predict(logit_model,type = "response")
+head(data)
+```
+
+### evaluate model performance
+
+```{r}
+threshold = 0.5
+data$predicted_default = ifelse(data$predicted_prob > threshold, "Yes", "No")
+conf_matrix = table(data$predicted_default, data$default)
+conf_matrix
+
+```
+```{r}
+accuracy=sum(diag(conf_matrix))/sum(conf_matrix)
+accuracy
+```
+
+###multiple logistic regression
+
+#5,1 fitting the model
+here we will inlcude an interaction term that allows the effect of income on default
+```{r}
+logit_mult_model = glm(default~balance+income*student,data=data,family = binomial)
+summary(logit_mult_model)
+
+```
+###5.2 evaluating the model
+<Talk about evaluation matrix/interpreationa>
+
+```{r}
+logit_mult_model = glm(default ~ balance + income * student, data = data, family = binomial)
+summary(logit_mult_model)
+
+data$mult_predicted_prob = predict(logit_mult_model, type = "response")
+data$mult_predicted_default = ifelse(data$mult_predicted_prob > threshold, "Yes", "No")
+
+conf_matrix_mult = table(data$mult_predicted_default, data$default)
+conf_matrix_mult
+
+```
+
+```{r}
+accuracy_mult = sum(diag(conf_matrix_mult)) / sum(conf_matrix_mult)
+accuracy_mult
+
+```
+#Multinomial Logistic Regression
+
+###load
+
+```{r}
+data2 = Carseats
+data2$SalesCategory = cut(data2$Sales, breaks = 3, labels = c("Low", "Medium", "High"))
+
+```
+```{r}
+library(nnet)
+multi_model = multinom(SalesCategory ~ Price + Income + Advertising, data = data2)
+summary(multi_model)
+
+```
+#6.2 predict
+```{r}
+data2$nomial_predicted_salesCat=predict(multi_model)
+head(data2)
+```
+
+#6.3 evaluate model
+
+```{r}
+conf_matrix_multi = table(data2$nomial_predicted_salesCat, data2$SalesCategory)
+conf_matrix_multi
+
+```
+
+```{r}
+accuracy_multi=sum(diag(conf_matrix_multi))/sum(conf_matrix_multi)
+accuracy_multi
+```
+
+```{r}
+library(class)
+library(ISLR2)
+library(tidyverse)
+```
+
+
+
+#Intro
+For this example, we use the'Smarket' dataset which contains stock market data between 2001-2005
+
+#data import & train/test set segmentation
+```{r}
+data("Smarket")
+smarket.tbl=as_tibble(Smarket)
+
+#Segment
+train=smarket.tbl %>% filter(Year<2005) # Training data is before 2005
+test=smarket.tbl %>% filter(Year==2005)
+
+#Define Predictors and response
+train.X=train %>% select(Lag1,Lag2) %>% as.matrix()
+test.X=test %>% select(Lag1,Lag2) %>% as.matrix()
+train.Y=train$Direction
+test.Y=test$Direction
+```
+
+###Train and predict via KNN
+```{r}
+#pcik k=3
+knn.pred=knn(train.X,test.X,train.Y,k=3)
+```
+
+#4,evaluate perfromance
+```{r}
+conf.matrix=table(Predicted=knn.pred,Actual=test.Y)
+print(conf.matrix)
+#Compute Accuracy
+accuracy=mean(knn.pred==test.Y)
+accuracy
+```
+
+#Experiment with different k values
+```{r}
+knn.pred_4=knn(train.X,test.X,train.Y,k=4)
+mean(knn.pred_4==test.Y)
+knn.pred_5=knn(train.X,test.X,train.Y,k=5)
+mean(knn.pred_5==test.Y)
+knn.pred_6=knn(train.X,test.X,train.Y,k=6)
+mean(knn.pred_6==test.Y)
+```
+
+#plot across different k vales
+```{r}
+# Scale the predictors
+train.X = scale(train.X)
+test.X = scale(test.X)
+
+# Function to compute average error for a given K
+compute_avg_error = function(k, num_iter = 50) {
+  errors = replicate(num_iter, {
+    knn_pred = knn(train.X, test.X, train.Y, k = k)
+    mean(knn_pred != test.Y)
+  })
+  mean(errors)
+}
+
+# Compute error for different values of K
+k_values = tibble(K = seq(1, 20, by = 1)) %>%
+  mutate(Avg_Error_Rate = map_dbl(K, ~ compute_avg_error(.x, num_iter = 100)))
+
+```
+```{r}
+ggplot(k_values,aes(x=K,y=Avg_Error_Rate))+
+  geom_line(color='blue')+
+  geom_point(size=2)+
+  labs(title="Visualizing Optimal K in KNN",
+       x="Number of Neighbors",
+       y="Average classification")
+
+ 
+```
+
+#K means clustering
+```{r}
+x.tbl = x.tbl %>% 
+  mutate(
+    X1 = ifelse(row_number() <= 25, X1 + 3, X1),
+    X2 = ifelse(row_number() <= 25, X2 - 4, X2)
+  )
+```
+#Apply K-means clustering
+
+```{r}
+#k=4
+km.out=kmeans(x.tbl,center=4,nstart=20)
+
+x.tbl=x.tbl %>% 
+  mutate(Cluster=as.factor(km.out$cluster))
+```
+
+```{r}
+ggplot(x.tbl, aes(x = X1, y = X2, color = Cluster)) +
+  geom_point(size = 3) +
+  labs(title = "K-means Clustering Results")
+
+
+```
+```{r}
+elbow = tibble(k = 1:20) %>% 
+  mutate(Total_WSS = map_dbl(k, ~kmeans(x.tbl %>% select(X1, X2), centers = .x, nstart = 20)$tot.withinss))
+
+ggplot(elbow, aes(x = k, y = Total_WSS)) +
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = 1:20) +
+  labs(title = "Elbow Plot for Optimal K",
+       x = "Number of Clusters (K)",
+       y = "Total Within Sum of Squares")
+```
