@@ -1,0 +1,414 @@
+---
+title: "Assignment 3_HI743"
+author: "Manthan Mehta"
+date: "2025-04-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(nnet)
+library(ISLR2)
+```
+
+# Introduction & Objective
+
+This analysis focuses on predicting whether an individual will default on their credit card payment using the Default dataset from the ISLR2 package. Credit card default prediction is a critical task in financial risk management, as it helps institutions assess potential credit risk.
+
+The dataset includes financial and demographic variables such as balance, income, and student status. To model the probability of default, we employ the following approaches:
+
+Simple logistic regression: using balance as the sole predictor.
+
+Multiple logistic regression: that includes all predictors and an interaction term between income and student to account for group-specific effects.
+
+Each model is evaluated based on classification accuracy, and the results are interpreted in the context of credit risk prediction.
+
+```{r}
+data = Default
+str(data)
+
+```
+
+# Dataset Understanding & Preparation
+
+The analysis utilizes the Default dataset from the ISLR2 package, which contains simulated credit card data for 10,000 customers. The objective is to use demographic and financial variables to predict whether a customer will default on their credit card payments.
+
+Dataset Description:
+
+The dataset includes the following variables:
+
+-   default: Factor variable indicating default status (Yes or No) — this is the binary outcome.
+
+-   balance: Numeric variable representing the average remaining balance on the customer’s credit card after monthly payments.
+
+-   income: Numeric variable indicating the customer’s annual income.
+
+-   student: Factor variable showing whether the customer is a student (Yes or No).
+
+Data Cleaning and Preparation:
+
+-   The dataset does not contain missing values.
+
+-   All variables were in their appropriate formats.
+
+-   No transformations or encoding were required for modeling.
+
+-   We performed exploratory visualizations to understand the relationship between predictors and the outcome.
+
+## Exploratory Data Analysis
+
+```{r balance distribution}
+ggplot(data,aes(x=balance,fill=default))+
+  geom_histogram(bins = 30,alpha=0.7,position = 'identity' )+
+  labs(title = "distribution of balance by default status",
+       x="Balance",
+       y="Count")
+
+
+```
+
+The histogram illustrates the distribution of credit card balances stratified by default status. Customers who did not default are shown in red, while those who defaulted are shown in blue.
+
+Key observations:
+
+-   Most customers who did not default have balances concentrated between \$0 and \$1,500, with a sharp peak around \$0, indicating many users pay off their balances entirely.
+
+-   In contrast, customers who defaulted tend to have much higher balances, mostly above \$1,000, and are almost absent in the lower balance range.
+
+-   This visualization highlights a strong association between higher balance and default likelihood, suggesting that balance is a key predictor in the logistic regression model.
+
+```{r}
+ggplot(data, aes(x = income, fill = default)) +
+  geom_histogram(bins = 30, alpha = 0.7, position = 'identity') +
+  labs(title = "Distribution of Income by Default Status",
+       x = "Income",
+       y = "Count")
+
+
+```
+
+The histogram shows the distribution of annual income among customers, segmented by default status. Customers who did not default are represented in red, while those who defaulted are shown in blue.
+
+Key observations:
+
+-   The income distribution for both defaulted and non-defaulted customers appears fairly similar and symmetric, with peaks around \$20,000 and \$40,000.
+
+-   Defaulters are spread across all income levels, indicating that income alone is not a strong differentiator between those who default and those who do not.
+
+-   This suggests that while income is included in the model, it may have less predictive power compared to balance.
+
+```{r}
+ggplot(data, aes(x = income, fill = student)) +
+  geom_histogram(bins = 30, alpha = 0.7, position = 'identity') +
+  labs(title = "Distribution of Income by Student Status",
+       x = "Income",
+       y = "Count")
+```
+
+The histogram displays the distribution of annual income grouped by student status. Students are shown in blue, while non-students are shown in red.
+
+Key observations:
+
+-   Students generally have lower incomes, with the distribution peaking around \$15,000–\$20,000.
+
+-   Non-students show a much broader and higher income distribution, with a peak near \$40,000.
+
+-   This stark contrast suggests that student status is closely associated with income, and including both in a model may introduce interaction effects. This justifies the inclusion of an interaction term between income and student in the multiple logistic regression model.
+
+```{r}
+ggplot(data,aes(x=student,fill=default))+
+  geom_bar()+
+  labs(title="Default statues bu student statues")
+  
+```
+
+The bar plot displays the distribution of default status grouped by student status. Students and non-students are shown on the x-axis, while the y-axis represents the number of customers.
+
+Key observations:
+
+-   Among both students and non-students, the majority did not default on their credit card payments.
+
+-   However, the proportion of defaults appears slightly higher among students compared to non-students.
+
+-   This suggests that student status might be a modest risk factor for default, justifying its inclusion in the predictive model — especially in combination with income, which differs substantially between the two groups.
+
+# Model Implementation & Explanation
+
+```{r}
+logit_model=glm(default~balance,data=data,family = binomial)
+summary(logit_model)
+```
+
+#### **Model Output Interpretation: Simple Logistic Regression**
+
+The logistic regression model using balance as the only predictor yielded the following results:
+
+-   **Intercept**: -10.65
+
+-   **Balance coefficient**: 0.0055
+
+-   **Both coefficients are highly statistically significant** (p *\< 0.001* )
+
+##### **Interpretation:**
+
+-   The positive and highly significant coefficient for balance (0.0055) indicates that as the average credit card balance increases, the log-odds of default also increase.
+
+-   Specifically, for every additional \$1 increase in balance, the odds of default increase by a factor of exp(0.0055) ≈ 1.006.
+
+-   While this per-dollar effect is small, balance values can exceed \$1,000, so the cumulative effect is substantial.
+
+**Model Fit:**
+
+-   **Null deviance**: 2920.6
+
+-   **Residual deviance**: 1596.5
+
+-   **AIC**: 1600.5, which will be useful for comparison with the multiple logistic regression model.
+
+```{r}
+data$predicted_prob = predict(logit_model,type = "response")
+head(data)
+```
+
+#### **Key Observations:**
+
+-   The predicted probabilities increase monotonically with balance, as expected from the model.
+
+-   Even for relatively high balances, the predicted probabilities remain below 1%.
+
+-   This aligns with the model’s interpretation: higher balance → higher default risk, though the predicted risks are still quite small in magnitude.
+
+```{r}
+threshold = 0.5
+data$predicted_default = ifelse(data$predicted_prob > threshold, "Yes", "No")
+conf_matrix = table(data$predicted_default, data$default)
+conf_matrix
+
+```
+
+### Confusion Matrix Interpretation
+
+-   True Negatives (TN) = 9625 - correctly predicted No default
+
+-   False Negatives (FN) = 233 - predicted No, but actually defaulted
+
+-   False Positives (FP) = 42 - predicted Yes, but actually did not default
+
+-   True Positives (TP) = 100 - correctly predicted Yes default
+
+```{r}
+accuracy=sum(diag(conf_matrix))/sum(conf_matrix)
+accuracy
+```
+
+Accuracy=0.9725 or 97.25%
+
+#### **Interpretation:**
+
+-   The model is very accurate overall, largely due to the high number of true negatives (most customers do not default).
+
+-   However, the model only identifies 100 out of 333 actual defaulters, meaning it misses \~70% of the actual defaults — a high false negative rate.
+
+-   Default events are rare, and a model using a 0.5 threshold is biased toward predicting “No”.
+
+### Multiple Logistic Regression
+
+```{r}
+logit_mult_model = glm(default~balance+income*student,data=data,family = binomial)
+summary(logit_mult_model)
+
+```
+
+1.  The model includes balance, income, student, and an interaction between income and student.
+
+2.  Balance remains a strong, statistically significant predictor of default; higher balance increases the risk.
+
+3.  Income, student status, and their interaction are not statistically significant — they do not meaningfully improve the prediction once balance is included.
+
+4.  The residual deviance (1571.3) and AIC (1581.3) are slightly lower than in the simple model, indicating a modest improvement in model fit.
+
+5.  Despite better fit statistics, the added variables offer limited interpretive or predictive value.
+
+```{r}
+logit_mult_model = glm(default ~ balance + income * student, data = data, family = binomial)
+summary(logit_mult_model)
+
+data$mult_predicted_prob = predict(logit_mult_model, type = "response")
+data$mult_predicted_default = ifelse(data$mult_predicted_prob > threshold, "Yes", "No")
+
+conf_matrix_mult = table(data$mult_predicted_default, data$default)
+conf_matrix_mult
+
+```
+
+```{r}
+accuracy_mult = sum(diag(conf_matrix_mult)) / sum(conf_matrix_mult)
+accuracy_mult
+
+```
+
+### Confusion Matrix & Accuracy (Multiple Logistic Regression)
+
+#### **Key Points:**
+
+-   Accuracy: 0.9734 (97.34%) — slightly higher than the simple model (97.25%)
+
+-   The model correctly identified 106 out of 333 actual defaulters, compared to 100 in the simple model.
+
+-   Slight reduction in false negatives (227 vs. 233) and false positives (39 vs. 42).
+
+-   The improvement is minimal, reinforcing that balance alone captures most of the predictive signal, and the added variables offer only a small gain.
+
+# Results and Interpretation
+
+### **Results Summary:**
+
+-   Two logistic regression models were fit to predict credit card default:
+
+-   Simple model: default\~balance
+
+-   Multiple model: default \~ balance+income\*student
+
+-   Both models were evaluated using confusion matrices and overall accuracy.
+
+### Key Findings:
+
+-   The simple model already achieved high accuracy (97.25%) and showed that balance is a strong predictor of default.
+
+-   The multiple model slightly improved accuracy to 97.34%, reducing both false positives and false negatives, but:
+
+    -Income, student status, and their interaction were not statistically significant
+
+    -The gain in performance was marginal
+
+-   In both models, predicted probabilities for default were low, reflecting the rare occurrence of defaults in the dataset (class imbalance).
+
+-   The logistic regression models had difficulty identifying many actual defaulters, highlighting a high false negative rate, especially when using a default threshold of 0.5.
+
+### **Limitations:**
+
+-   The model performs well overall but struggles with identifying defaults due to class imbalance.
+
+-   A different threshold or alternative evaluation metrics (e.g., sensitivity, AUC) could provide more insight into model effectiveness for rare events.
+
+# Smarket(KNN)
+
+### **Introduction & Objective**
+
+This section investigates the use of the K-Nearest Neighbors (KNN) algorithm to predict daily movements in the stock market using the Smarket dataset from the ISLR2 package. The outcome variable is Direction (Up or Down), and the predictors used are Lag1 and Lag2, representing returns from the previous 1 and 2 days. The goal is to assess whether these simple lagged features can be used to effectively predict future market direction.
+
+### **Data Understanding & Preparation**
+
+The dataset contains 1250 observations from 2001 to 2005. For this analysis:
+
+-   Data from 2001–2004 was used for training
+
+-   Data from 2005 was reserved for testing
+
+-   Only two lag variables were selected: Lag1 and Lag2
+
+-   All predictors were standardized using scale() to ensure fair distance-based comparison in KNN
+
+```{r}
+library(class)
+data("Smarket")
+smarket.tbl=as_tibble(Smarket)
+
+#Segment
+train=smarket.tbl %>% filter(Year<2005) # Training data is before 2005
+test=smarket.tbl %>% filter(Year==2005)
+
+#Define Predictors and response
+train.X=train %>% select(Lag1,Lag2) %>% as.matrix()
+test.X=test %>% select(Lag1,Lag2) %>% as.matrix()
+train.Y=train$Direction
+test.Y=test$Direction
+```
+
+```{r}
+#pcik k=3
+knn.pred=knn(train.X,test.X,train.Y,k=3)
+```
+
+```{r}
+conf.matrix=table(Predicted=knn.pred,Actual=test.Y)
+print(conf.matrix)
+#Compute Accuracy
+accuracy=mean(knn.pred==test.Y)
+accuracy
+```
+
+#Experiment with different k values
+
+```{r}
+knn.pred_4=knn(train.X,test.X,train.Y,k=4)
+mean(knn.pred_4==test.Y)
+knn.pred_5=knn(train.X,test.X,train.Y,k=5)
+mean(knn.pred_5==test.Y)
+knn.pred_6=knn(train.X,test.X,train.Y,k=6)
+mean(knn.pred_6==test.Y)
+```
+
+```{r}
+# Scale the predictors
+train.X = scale(train.X)
+test.X = scale(test.X)
+
+# Function to compute average error for a given K
+compute_avg_error = function(k, num_iter = 50) {
+  errors = replicate(num_iter, {
+    knn_pred = knn(train.X, test.X, train.Y, k = k)
+    mean(knn_pred != test.Y)
+  })
+  mean(errors)
+}
+
+# Compute error for different values of K
+k_values = tibble(K = seq(1, 20, by = 1)) %>%
+  mutate(Avg_Error_Rate = map_dbl(K, ~ compute_avg_error(.x, num_iter = 100)))
+
+```
+
+```{r}
+ggplot(k_values,aes(x=K,y=Avg_Error_Rate))+
+  geom_line(color='blue')+
+  geom_point(size=2)+
+  labs(title="Visualizing Optimal K in KNN",
+       x="Number of Neighbors",
+       y="Average classification")
+
+ 
+```
+
+### **Model Implementation & Tuning**
+
+An initial KNN model was trained using k = 3, yielding the following confusion matrix and accuracy:
+
+Additional models with k=4,k=5,k=6 yielded lower accuracies of 52.4%, 48.4%, and 48.4%, respectively, suggesting no consistent improvement with small changes to k.
+
+To better understand the influence of k, a tuning procedure was implemented, testing values from k=1 to 20, each repeated 100 times to compute stable error rates.
+
+### Graph Interpretation: Visualizing Optimal K in KNN
+
+The plot titled "Visualizing Optimal K in KNN" displays the average classification error for k=1to 20. Each point represents the mean error across 100 repetitions for a given k.
+
+#### Key Observations:
+
+-   Classification error fluctuates between 0.465 and 0.50, showing only marginal variation across different values of k.
+
+-   The lowest error (\~0.465) occurs at k=11 and k=20, but even the best result is barely better than random guessing (which would yield 50% error).
+
+-   There is no clear trend or “elbow point” to indicate an optimal k, which implies that KNN does not perform well with the given features.
+
+### Results & Interpretation
+
+While the highest accuracy obtained (with k=3) was **53.2%**, this is only marginally better than flipping a coin. The confusion matrix reveals that the model frequently misclassifies both Up and Down days. The overlapping distributions of Lag1 and Lag2 for different market directions likely contribute to this difficulty.
+
+Despite attempts at tuning K, performance remained weak, reinforcing the notion that the two selected lag variables do not provide strong predictive power for this task.
+
+### **Conclusion**
+
+The KNN classifier applied to the Smarket dataset using only Lag1 and Lag2 achieved limited success in predicting daily stock market movements. Even after normalization and tuning of `k`, the model performed only slightly better than chance, with accuracy around 53% at best.
+
+This analysis highlights the limitations of simple, lag-based predictors for financial forecasting and the sensitivity of KNN to feature informativeness. More robust models or more relevant features may be needed to make reliable market predictions.

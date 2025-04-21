@@ -1,0 +1,516 @@
+---
+title: "Assignment3_Section2"
+author: "Manthan Mehta"
+date: "2025-04-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(mlbench)
+library(tidyverse)
+data("PimaIndiansDiabetes")
+
+df <- PimaIndiansDiabetes
+
+str(df)
+summary(df)
+
+
+```
+
+### **1. Problem Definition & Justification**
+
+Diabetes is a prevalent chronic condition that can lead to serious health complications if not diagnosed and managed early. Accurate prediction models can support early detection and guide timely interventions, especially in underserved populations.
+
+This analysis uses the Pima Indians Diabetes Dataset, which contains biometric and demographic data from female patients of Pima Indian heritage aged 21 and older. The goal is to predict whether an individual has diabetes using variables such as glucose level, age, body mass index (BMI), and number of pregnancies.
+
+By applying and comparing multiple classification algorithms — simple logistic regression, multiple logistic regression, and K-nearest neighbors (KNN) — we aim to identify an approach that balances accuracy and interpretability for clinical use.
+
+```{r}
+
+colSums(df == 0)
+
+# Replacing 0s with NA in columns where 0 is not a valid value
+df_clean <- df %>%
+  mutate(
+    glucose  = ifelse(glucose == 0, NA, glucose),
+    pressure = ifelse(pressure == 0, NA, pressure),
+    triceps  = ifelse(triceps == 0, NA, triceps),
+    insulin  = ifelse(insulin == 0, NA, insulin),
+    mass     = ifelse(mass == 0, NA, mass)
+  )
+
+# Remove rows with any missing values
+df_clean <- na.omit(df_clean)
+
+dim(df_clean)
+```
+
+### **2. Data Import, Cleaning, & Exploration**
+
+The dataset used for this analysis is the Pima Indians Diabetes Dataset, accessed from the mlbench R package. It includes 768 observations and 9 variables related to health status and medical history, such as glucose levels, BMI, and age. The outcome variable, diabetes, is a binary indicator of whether a patient tested positive or negative for diabetes.
+
+#### **Variables:**
+
+-   **pregnant**: Number of times pregnant
+
+-   **glucose**: Plasma glucose concentration
+
+-   **pressure**: Diastolic blood pressure
+
+-   **triceps**: Triceps skinfold thickness
+
+-   **insulin**: 2-Hour serum insulin
+
+-   **mass**: Body mass index (BMI)
+
+-   **pedigree**: Diabetes pedigree function
+
+-   **age**: Age in years
+
+-   **diabetes**: Outcome variable (Yes/No)
+
+#### **Data Cleaning:**
+
+-   No missing values were present in the dataset, but some variables contain zero values that are not realistic (e.g., glucose=0, mass=0).
+
+-   These zero values were considered physiologically implausible and were excluded
+
+-   Predictors were standardized before applying KNN to ensure fair distance calculations.
+
+### Exploratory Data Analysis
+
+```{r}
+
+library(tidyverse)
+
+
+df_clean %>%
+  select(glucose, age, mass, pregnant, diabetes) %>%
+  summary()
+```
+
+```{r}
+ggplot(df_clean, aes(x = glucose, fill = diabetes)) +
+  geom_histogram(bins = 30, alpha = 0.6, position = "identity") +
+  labs(title = "Glucose Distribution by Diabetes Status",
+       x = "Glucose",
+       y = "Count") +
+  theme_minimal()
+
+
+```
+
+This histogram shows the distribution of glucose levels among individuals, separated by their diabetes status:
+
+-   Red bars represent individuals who tested negative for diabetes.
+
+-   Blue bars represent those who tested positive.
+
+#### **Key Observations:**
+
+-   Individuals who tested positive for diabetes generally have higher glucose levels.
+
+-   Most non-diabetic individuals have glucose levels clustered between 85 and 130.
+
+-   Diabetic individuals are more frequent in the higher glucose ranges, especially above 130, and remain distributed even beyond 160.
+
+-   There is clear separation between the two classes, suggesting that glucose is a strong predictor of diabetes in this dataset.
+
+```{r}
+ggplot(df_clean, aes(x = mass, fill = diabetes)) +
+  geom_histogram(bins = 30, alpha = 0.6, position = "identity") +
+  labs(title = "BMI Distribution by Diabetes Status",
+       x = "BMI (mass)",
+       y = "Count") +
+  theme_minimal()
+```
+
+This histogram illustrates the distribution of body mass index (BMI) among individuals, grouped by diabetes status:
+
+-   Red bars represent individuals who tested negative for diabetes.
+
+-   Blue bars represent those who tested positive.
+
+#### **Key Observations:**
+
+-   Diabetic individuals tend to have higher BMI values, often in the range of 30 to 40.
+
+-   Non-diabetic individuals show a broader spread but peak more frequently in the 25 to 30 BMI range.
+
+-   There is noticeable overlap, but the shift toward higher BMI in diabetic individuals suggests that BMI contributes meaningfully to diabetes prediction.
+
+-   This supports the inclusion of mass as a predictor in the multiple logistic regression model.
+
+```{r}
+ggplot(df_clean, aes(x = diabetes, y = age, fill = diabetes)) +
+  geom_boxplot(alpha = 0.7) +
+  labs(title = "Age Distribution by Diabetes Status",
+       x = "Diabetes",
+       y = "Age") +
+  theme_minimal()
+
+
+```
+
+This boxplot displays the distribution of age among individuals grouped by diabetes status:
+
+-   The red box shows individuals who tested negative for diabetes.
+
+-   The blue box shows individuals who tested positive.
+
+#### **Key Observations:**
+
+-   Individuals who tested positive for diabetes tend to be older, with a median age around 35–40 years.
+
+-   Those who tested negative are generally younger, with a median age closer to 25.
+
+-   The spread of age is wider among diabetics, indicating greater age variability in this group.
+
+-   There are several outliers among non-diabetics, with some individuals over age 60.
+
+-   This pattern supports the inclusion of age as an important predictor in the multiple logistic regression model.
+
+```{r}
+ggplot(df_clean, aes(x = diabetes, y = pregnant, fill = diabetes)) +
+  geom_boxplot(alpha = 0.7) +
+  labs(title = "Pregnancies by Diabetes Status",
+       x = "Diabetes",
+       y = "Number of Pregnancies") +
+  theme_minimal()
+```
+
+This boxplot shows the distribution of the number of pregnancies among individuals, grouped by diabetes status:
+
+-   The red box represents individuals who tested negative for diabetes
+
+-   The blue box represents individuals who tested positive.
+
+#### **Key Observations:**
+
+-   Diabetic individuals generally had more pregnancies, with a median around 3, compared to a median of 2 for non-diabetics.
+
+-   The spread of pregnancy counts is wider among diabetics, with some individuals having up to 17 pregnancies.
+
+-   Non-diabetics show a tighter distribution with fewer extreme values.
+
+-   This suggests a potential link between higher pregnancy frequency and diabetes, supporting the inclusion of the pregnant variable in the multiple logistic regression model.
+
+    ### Model Selection & Justification
+
+```{r}
+set.seed(123)  
+
+#20 test and 80 train
+sample_index <- sample(1:nrow(df_clean), size = 0.8 * nrow(df_clean))
+train <- df_clean[sample_index, ]
+test  <- df_clean[-sample_index, ]
+
+```
+
+```{r}
+# Fitting logistic regression with glucose only
+logit_simple <- glm(diabetes ~ glucose, data = train, family = binomial)
+
+# View model summary
+summary(logit_simple)
+```
+
+```{r}
+# Predicting probabilities on test data
+test$predicted_prob_simple <- predict(logit_simple, newdata = test, type = "response")
+
+# Using 0.5 threshold to classify
+test$predicted_class_simple <- ifelse(test$predicted_prob_simple > 0.5, "pos", "neg")
+
+# Converting to factor to match actual labels
+test$predicted_class_simple <- factor(test$predicted_class_simple, levels = c("neg", "pos"))
+
+# Confusion matrix
+conf_matrix_simple <- table(Predicted = test$predicted_class_simple, Actual = test$diabetes)
+conf_matrix_simple
+```
+
+```{r}
+# Accuracy
+accuracy_simple <- mean(test$predicted_class_simple == test$diabetes)
+accuracy_simple
+
+```
+
+### **Simple Logistic Regression Model**
+
+To begin the modeling process, a simple logistic regression was implemented using glucose as the only predictor for diabetes status. This decision was based on earlier exploratory analysis, which showed that glucose levels were distinctly higher among individuals who tested positive for diabetes.
+
+A train-test split was performed, with 80% of the data used for training and 20% reserved for testing, using a fixed random seed to ensure reproducibility. This setup allows the model to be evaluated on unseen data to assess its performance in a real-world context.
+
+The fitted logistic regression model was:
+
+logit(p(diabetes))=-6.083+0.0428\*glucose
+
+The coefficient for glucose was statistically significant (p \< 0.001), indicating a strong positive association between glucose level and the likelihood of testing positive for diabetes. In other words, for every one-unit increase in glucose, the log-odds of having diabetes increase by approximately 0.0428, holding all else constant.
+
+### **Confusion Matrix Interpretation**
+
+When predictions were made on the test data using a 0.5 probability threshold, the results were as follows:
+
+-   True Positives (TP): 15 individuals who actually had diabetes were correctly predicted as diabetic.
+
+-   True Negatives (TN): 50 individuals without diabetes were correctly predicted as non-diabetic.
+
+-   False Positives (FP): 6 individuals who did not have diabetes were incorrectly predicted as diabetic.
+
+-   False Negatives (FN): 8 individuals who did have diabetes were incorrectly predicted as non-diabetic.
+
+### **Accuracy Calculation**
+
+Accuracy measures the proportion of total correct predictions (both positives and negatives) out of all predictions.
+
+The model achieved an **accuracy of approximately 82.3%** on the test set. This indicates good predictive performance using glucose alone, though the presence of false positives and false negatives suggests that additional predictors may improve model sensitivity and specificity.
+
+```{r}
+# Fitting multiple logistic regression model
+logit_multiple <- glm(diabetes ~ glucose + age + mass + pregnant,
+                      data = train, family = binomial)
+
+# View model summary
+summary(logit_multiple)
+
+```
+
+```{r}
+# Predicting probabilities on test data
+test$predicted_prob_multiple <- predict(logit_multiple, newdata = test, type = "response")
+
+# Classifying using 0.5 threshold
+test$predicted_class_multiple <- ifelse(test$predicted_prob_multiple > 0.5, "pos", "neg")
+
+# Converting to factor with correct levels
+test$predicted_class_multiple <- factor(test$predicted_class_multiple, levels = c("neg", "pos"))
+```
+
+```{r}
+# Confusion matrix
+conf_matrix_multiple <- table(Predicted = test$predicted_class_multiple, Actual = test$diabetes)
+conf_matrix_multiple
+```
+
+```{r}
+# Accuracy
+accuracy_multiple <- mean(test$predicted_class_multiple == test$diabetes)
+accuracy_multiple
+```
+
+### **Multiple Logistic Regression Model**
+
+A multiple logistic regression model was fit using four predictors: glucose, age, BMI (mass), and number of pregnancies. These variables were chosen based on their biological relevance and prior evidence from the exploratory analysis.
+
+The model was trained on the same 80% training set used previously and evaluated on the remaining 20% test set.
+
+### **Model Summary**
+
+The fitted model was:
+
+logit(P(Diabetes)) = −9.088 + 0.0362 × Glucose + 0.0367 × Age + 0.0762 × BMI + 0.0309 × Pregnancies
+
+#### Key Findings:
+
+-   **Glucose** remained a strong and statistically significant predictor (*p \< 0.001*), reinforcing its role as a key factor in diabetes.
+
+-   **BMI (mass)** also showed a significant positive association (*p \< 0.001*), suggesting that individuals with higher BMI are more likely to have diabetes.
+
+-   **Age** had a marginal association (*p = 0.06*), indicating a possible trend where older individuals are more likely to be diabetic.
+
+-   **Pregnancies** was not statistically significant (*p \> 0.6*), suggesting limited contribution when controlling for other variables.
+
+-   The residual deviance reduced from 315.60 (simple model) to 294.66, and the AIC decreased from 319.6 to 304.66, indicating a better overall model fit compared to the simple logistic regression.
+
+### **Model Evaluation on Test Set**
+
+Using a 0.5 probability threshold, the model achieved the following prediction breakdown:
+
+-   True Positives (TP): 16 correctly identified diabetic individuals
+
+-   True Negatives (TN): 50 correctly identified non-diabetics
+
+-   False Positives (FP): 6 non-diabetics incorrectly predicted as diabetic
+
+-   False Negatives (FN): 7 diabetics incorrectly predicted as non-diabetic
+
+### **Accuracy Calculation**
+
+The model achieved an accuracy of approximately 83.5%, which is slightly higher than the simple model’s 82.3%. This suggests that including additional predictors like BMI and age provides a modest improvement in predictive performance.
+
+```{r}
+# Loading required package
+library(class)
+
+# Selecting relevant predictors and response
+predictors <- c("glucose", "age", "mass", "pregnant")
+
+# This defines a normalization function that rescales values between 0 and 1.
+#This is important because KNN uses distance, and unscaled values can distort that #distance
+normalize <- function(x) {
+  return((x - min(x)) / (max(x) - min(x)))
+}
+
+# This applies the normalize() function to all predictor columns, and stores the #normalized dataset in a new object df_knn.
+df_knn <- df_clean %>%
+  mutate(across(all_of(predictors), normalize))
+
+# Creating train-test split (same as before)
+set.seed(123)
+sample_index <- sample(1:nrow(df_knn), size = 0.8 * nrow(df_knn))
+train_knn <- df_knn[sample_index, ]
+test_knn  <- df_knn[-sample_index, ]
+
+
+#train.X and test.X: the normalized predictors
+#train.Y and test.Y: the actual diabetes labels for training and testing
+train.X <- train_knn[, predictors]
+test.X  <- test_knn[, predictors]
+train.Y <- train_knn$diabetes
+test.Y  <- test_knn$diabetes
+```
+
+```{r}
+# Loadin necessary libraries
+library(tibble)
+library(purrr)
+library(ggplot2)
+
+# Defining a function to compute average classification error for a given k
+# This function will run KNN multiple times for stability
+compute_avg_error <- function(k, num_iter = 50) {
+  
+  # Repeating the following block num_iter times
+  errors <- replicate(num_iter, {
+    
+    # Running KNN classification using specified k
+    pred <- knn(train = train.X, test = test.X, cl = train.Y, k = k)
+    
+    # Calculatong error for this run: proportion of incorrect predictions
+    mean(pred != test.Y)
+  })
+  
+  # Returnning the average error over all iterations
+  mean(errors)
+}
+
+# Creating a tibble of K values from 1 to 20
+# For each k, computing the average classification error using the function above
+k_values <- tibble(K = 1:20) %>%
+  mutate(Avg_Error_Rate = map_dbl(K, ~ compute_avg_error(.x, num_iter = 100)))
+
+# Plotting average classification error against k
+ggplot(k_values, aes(x = K, y = Avg_Error_Rate)) +
+  geom_line(color = "blue") +            
+  geom_point(size = 2) +                 
+  labs(title = "KNN Classification Error Across Different K Values",
+       x = "Number of Neighbors (K)",
+       y = "Average Classification Error") +
+  theme_minimal()
+
+
+```
+
+```{r}
+library(class)
+
+knn_pred_8 <- knn(train = train.X, test = test.X, cl = train.Y, k = 8)
+```
+
+```{r}
+conf_matrix_knn_8 <- table(Predicted = knn_pred_8, Actual = test.Y)
+conf_matrix_knn_8
+```
+
+```{r}
+accuracy_knn_8 <- mean(knn_pred_8 == test.Y)
+accuracy_knn_8
+
+```
+
+### **K-Nearest Neighbors (KNN) Model**
+
+To complement the logistic regression models, i implemented a K-Nearest Neighbors (KNN) classifier using the same diabetes dataset. KNN is a non-parametric algorithm that classifies new observations based on the majority class of their closest neighbors in the training data. Unlike logistic regression, KNN makes no assumptions about the underlying data distribution and relies entirely on the structure of the data space.
+
+#### **Model Setup**
+
+The model used four predictors selected earlier: glucose, age, BMI (mass), and number of pregnancies. Since KNN is distance-based, all predictors were normalized to a 0–1 scale to ensure comparability. The dataset was split into 80% training and 20% testing using a fixed random seed.
+
+### **Tuning the Number of Neighbors (k)**
+
+To select the optimal value of `k`, i computed the average classification error for k=1 to 20, repeating each evaluation 100 times for stability. The results were visualized in the plot titled "KNN Classification Error Across Different K Values."
+
+#### **Graph Interpretation:**
+
+-   The classification error was highest at k = 1 (approx. 28%), indicating overfitting.
+
+-   Error decreased consistently and reached a minimum near k = 8 to 11, with average classification errors around 12.5%.
+
+-   Beyond k=11, the error remained stable with minor fluctuations.
+
+-   Based on this trend, k = 8 was chosen for the final model as it achieved one of the lowest and most stable error rates.
+
+### **Model Evaluation on Test Set (k = 8)**
+
+Using the selected k=8, the KNN classifier was applied to the test data. The following results were obtained:
+
+-   True Positives (TP): 17 diabetic individuals were correctly classified
+
+-   True Negatives (TN): 48 non-diabetics were correctly classified
+
+-   False Positives (FP): 8 non-diabetics were incorrectly predicted as diabetic
+
+-   False Negatives (FN): 6 diabetics were incorrectly predicted as non-diabetic
+
+#### **Accuracy Calculation:**
+
+The model achieved an accuracy of approximately 82.3%, comparable to the logistic regression models. While KNN does not provide interpretable coefficients, it offers a flexible and data-driven approach that performs well in this binary classification setting.
+
+## **Results & Performance Evaluation**
+
+Each predictive model was evaluated using classification accuracy and confusion matrix analysis on the test dataset.
+
+-   Simple Logistic Regression (Glucose Only) achieved an accuracy of 82.3%, demonstrating that glucose alone is a strong predictor of diabetes.
+
+-   Multiple Logistic Regression (Glucose, Age, Mass, Pregnant) slightly improved accuracy to 83.5%, indicating that including additional health-related variables contributes to better model performance.
+
+-   K-Nearest Neighbors (K = 8) also yielded an accuracy of 82.3%. Although KNN lacks interpretability, it offered comparable performance to logistic regression, reinforcing the importance of glucose and mass as key differentiators between diabetic and non-diabetic individuals.
+
+Across all models, true positives and true negatives were identified with reasonable consistency. However, some false positives and false negatives remained, suggesting that no model was perfect in separating the two classes.
+
+These findings support the use of statistical learning for early identification of at-risk individuals and could help inform preventive care or lifestyle interventions, particularly in resource-limited healthcare settings.
+
+## **Conclusion & Discussion**
+
+This analysis explored three predictive modeling techniques — simple logistic regression, multiple logistic regression, and K-Nearest Neighbors — to predict diabetes status using basic health indicators from the Pima Indians Diabetes dataset.
+
+Key insights include:
+
+-   Glucose was consistently the most influential predictor across all models.
+
+-   Including BMI (mass) and age improved model accuracy in logistic regression.
+
+-   KNN, although non-parametric and less interpretable, performed nearly as well, validating the importance of proper data scaling and tuning.
+
+### **Strengths:**
+
+-   Models achieved high accuracy (above 80%) with a small set of accessible variables.
+
+-   The KNN error tuning process helped identify an optimal `k` that minimized misclassification.
+
+### **Limitations:**
+
+-   The dataset had limited diversity and feature scope (e.g., no family history or physical activity data).
+
+-   The models were not evaluated for sensitivity, specificity, or AUC, which would be more clinically informative.
+
+### **Recommendations:**
+
+-   Future work could include additional health variables and consider more advanced models like Random Forest or Gradient Boosting.
+
+-   Evaluation metrics beyond accuracy (e.g., ROC curve) should be considered, especially in imbalanced datasets.
