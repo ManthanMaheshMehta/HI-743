@@ -1,0 +1,509 @@
+---
+title: "Prediction of Carbon Monoxide Concentration Using Sensor and Environmental Data"
+author: "Manthan Mehta"
+date: "2025-05-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Carbon monoxide (CO) is a harmful air pollutant produced by combustion processes, especially from vehicles and industrial sources. Prolonged exposure to elevated CO levels can cause serious health effects such as headaches, dizziness, or even death in extreme cases. Predicting CO concentration accurately is essential for public health monitoring, pollution control, and early warning systems.
+
+In this project, I aim to develop predictive models using machine learning techniques to estimate hourly CO concentrations. The data are sourced from the UCI Machine Learning Repository and represent one year of hourly sensor and environmental readings collected in an Italian urban setting.
+
+Two models — linear regression and random forest — will be developed and compared. The goal is to evaluate how well sensor responses and meteorological variables such as temperature, humidity, and gas concentrations can explain variations in CO levels.
+
+This work will demonstrate how machine learning tools can be used in environmental health data analysis and support future improvements in air quality monitoring systems.
+
+## Dataset Description
+
+The dataset used in this project was obtained from the UCI Machine Learning Repository. It contains 9,358 hourly records collected between March 2004 and February 2005 from a gas multisensor device deployed in a polluted urban area in Italy.
+
+Each row represents one hour of recorded data, and the dataset includes: - Responses from 5 metal oxide chemical sensors (PT08.S1 to PT08.S5), - Meteorological variables such as temperature, relative humidity, and absolute humidity, - Reference analyzer values for gases like carbon monoxide (CO), nitrogen oxides (NOₓ), and benzene.
+
+Missing or faulty sensor readings are encoded as -200, which we will treat as missing values during data cleaning.
+
+The goal is to predict the carbon monoxide concentration (CO(GT)), measured in mg/m³, based on the other sensor and weather features.
+
+### Variable Information
+
+| Variable Name | Type | Description | Units |
+|------------------|------------------|-------------------|------------------|
+| Date | Date | Date of measurement | \- |
+| Time | Categorical | Hour of the day | \- |
+| CO(GT) | Target | True hourly averaged CO concentration (reference analyzer) | mg/m³ |
+| PT08.S1(CO) | Sensor | Sensor response (nominally CO targeted) | Arbitrary |
+| NMHC(GT) | Numeric | True hourly averaged Non-Methane Hydrocarbons concentration | µg/m³ |
+| C6H6(GT) | Numeric | Benzene concentration (reference analyzer) | µg/m³ |
+| PT08.S2(NMHC) | Sensor | Sensor response (nominally NMHC targeted) | Arbitrary |
+| NOx(GT) | Numeric | Nitrogen oxides concentration | ppb |
+| PT08.S3(NOx) | Sensor | Sensor response (nominally NOx targeted) | Arbitrary |
+| NO2(GT) | Numeric | Nitrogen dioxide concentration | µg/m³ |
+| PT08.S4(NO2) | Sensor | Sensor response (nominally NO2 targeted) | Arbitrary |
+| PT08.S5(O3) | Sensor | Sensor response (nominally O₃ targeted) | Arbitrary |
+| T | Numeric | Ambient temperature | °C |
+| RH | Numeric | Relative humidity | \% |
+| AH | Numeric | Absolute humidity | g/m³ |
+
+```{r warning=FALSE}
+library(tidyverse)
+library(readxl)
+
+# Loading the data
+data <- read_excel("air_quality_dataset.xlsx")
+
+# Summary just to see if there are any missing values or any weird values indicating(N/A)
+summary(data)
+
+#  Counting how many -200 values are in each column(-200 is used here to indicate N/A)
+missing_counts <- sapply(data, function(x) sum(x == -200, na.rm = TRUE))
+missing_counts
+
+# dropping NMHC.GT. column,since it has 8443 missing values
+data <- data %>% select(-`NMHC(GT)`)
+
+# replacing -200 with NA for  the numeric columns
+data_clean <- data %>%
+  mutate(across(where(is.numeric), ~replace(., . == -200, NA)))
+
+# removing rows with NA
+data_clean <- na.omit(data_clean)
+
+# this will help to know how many clean rows with no missing values we have
+cat("Original rows:", nrow(data), "\n")
+cat("Cleaned rows:", nrow(data_clean), "\n")
+cat("Rows removed:", nrow(data) - nrow(data_clean), "\n")
+```
+
+## Data Cleaning
+
+The dataset contains missing or invalid sensor readings, which were represented by the value -200. To address this, we first explored the summary statistics and noticed that certain columns (e.g., NMHC(GT) — Non-Methane Hydrocarbons (Ground Truth)) had a disproportionately large number of -200 entries, suggesting they were placeholders for missing data.
+
+To retain as much data as possible while still ensuring model reliability, we took the following steps:
+
+1.  Dropped the variable NMHC(GT) (Non-Methane Hydrocarbons) due to excessive missingness.
+2.  Replaced all remaining -200 values with NA.
+3.  Performed complete case analysis by removing rows that contained any NA values.
+4.  Reported the number of observations removed during the cleaning process.
+
+This approach allowed us to preserve the rest of the dataset while ensuring that only rows with complete data were used for modeling.
+
+### Exploratory Data Analysis
+
+```{r warning=FALSE}
+library(ggplot2)
+# Histogram of CO(GT)
+ggplot(data_clean, aes(x = `CO(GT)`)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+  theme_minimal() +
+  labs(
+    title = "Distribution of CO(GT)",
+    x = "Carbon Monoxide Concentration (mg/m³)",
+    y = "Frequency"
+  )
+```
+
+### Histogram of CO(GT)
+
+The histogram shows the distribution of the target variable CO(GT), representing the true hourly averaged concentration of carbon monoxide in mg/m³.
+
+The distribution is right-skewed, with most values clustered between 0 and 4 mg/m³. Although it is not perfectly normally distributed, the shape still allows for the application of linear regression, especially if residuals are approximately symmetric.
+
+However, the long right tail and presence of higher values suggest the possibility of non-linear relationships, which makes a non-parametric model like Random Forest suitable as well.
+
+This plot supports the use of both: - Linear Regression (due to relatively continuous nature and unimodal shape), - Random Forest (to capture potential non-linear effects and outliers).
+
+```{r}
+ggplot(data_clean, aes(x = `C6H6(GT)`, y = `CO(GT)`)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  theme_minimal() +
+  labs(title = "CO(GT) vs Benzene (C6H6(GT))",
+       x = "Benzene (µg/m³)",
+       y = "CO Concentration (mg/m³)")
+```
+
+### CO(GT) vs Benzene (C6H6(GT))
+
+The scatterplot shows a strong positive relationship between carbon monoxide concentration (CO(GT)) and benzene levels (C6H6(GT)).
+
+The data points follow a clear upward trend, and the fitted linear regression line (in red) closely matches the general direction of the data. This supports the use of a linear regression model, as the association appears approximately linear.
+
+However, there is also some curvature and spread, particularly at higher benzene concentrations, along with a few extreme values (outliers). These patterns suggest that a non-linear model like Random Forest may better capture subtle variations and improve prediction accuracy.
+
+This visualization supports the use of both models: - Linear Regression for its simplicity and interpretability - Random Forest for its flexibility in handling non-linear patterns and outliers
+
+```{r}
+ggplot(data_clean, aes(x = `PT08.S1(CO)`, y = `CO(GT)`)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  theme_minimal() +
+  labs(title = "CO(GT) vs Sensor Response PT08.S1(CO)",
+       x = "Sensor Response (PT08.S1(CO))",
+       y = "CO Concentration (mg/m³)")
+```
+
+### CO(GT) vs Sensor Response PT08.S1(CO)
+
+This scatterplot shows a positive association between carbon monoxide concentration (CO(GT)) and the sensor response from PT08.S1(CO), which is designed to detect CO levels.
+
+The linear trend line suggests a reasonably strong linear relationship overall. However, the spread of points increases at higher sensor values, and the curve appears to slightly flatten, indicating that the relationship may not be strictly linear across the full range.
+
+This supports the use of both: - Linear Regression for its ability to capture the overall trend - Random Forest for its flexibility in modeling potential non-linearities and variable sensitivity across ranges
+
+```{r}
+
+library(corrplot)
+
+# selecting numeric variables
+numeric_data <- data_clean %>% select(where(is.numeric))
+
+# computing correlation matrix
+cor_matrix <- cor(numeric_data, use = "complete.obs")
+
+# plotting the correlation heatmap
+corrplot(cor_matrix,
+         method = "color",
+         type = "lower",
+         addCoef.col = "black", 
+         tl.cex = 0.8,           
+         number.cex = 0.7,
+         col = colorRampPalette(c("blue", "white", "red"))(200),
+         mar = c(0, 0, 1, 0),
+         title = "Correlation Heatmap of Numeric Variables")
+```
+
+### Correlation Heatmap
+
+The heatmap displays pairwise Pearson correlation coefficients among all numeric variables in the dataset.
+
+Key observations: - The target variable CO(GT) shows strong positive correlations with: - C6H6(GT) (r = 0.93) - PT08.S1(CO) (r = 0.88) - PT08.S2(NMHC) (r = 0.91) These predictors are likely to be important features in both linear and non-linear models.
+
+-   Several sensor variables are highly correlated with each other, such as:
+    -   PT08.S2(NMHC) and PT08.S4(NO2) (r = 0.86)
+    -   PT08.S2(NMHC) and PT08.S1(CO) (r = 0.89) This multicollinearity can be problematic for Linear Regression, which assumes independent predictors.
+-   Environmental variables like temperature (T), relative humidity (RH), and absolute humidity (AH) show weaker correlations with CO(GT) (all r \< 0.1), but may still contribute in a non-linear model like Random Forest.
+
+### Interpretation:
+
+-   The strong linear relationships support the use of Linear Regression.
+-   The presence of multicollinearity and weaker, possibly non-linear relationships supports using Random Forest, which is robust to these issues and can capture complex interactions.
+
+This correlation matrix further justifies the comparison of both modeling approaches.
+
+### Model Selection & Justification
+
+To predict the true hourly average carbon monoxide concentration (CO(GT)), we selected two modeling approaches:
+
+1.  Linear Regression – a widely used, interpretable method that assumes linear relationships and independent predictors.
+2.  Random Forest Regression – a non-parametric, ensemble-based method capable of capturing non-linear relationships and interactions.
+
+From our exploratory analysis and correlation heatmap, we observed high correlations between several predictor variables, indicating the presence of multicollinearity.
+
+This is a concern for Linear Regression, as multicollinearity can inflate standard errors and reduce interpretability. We addressed this by calculating Variance Inflation Factors (VIF) and considering the removal of highly collinear predictors.
+
+In contrast, Random Forest is robust to multicollinearity and does not require feature independence, making it well-suited for our data, especially where relationships appear complex or non-linear.
+
+Therefore, comparing these two models allows us to assess trade-offs between interpretability and predictive power.
+
+```{r}
+#Variance Inflation Factor
+library(car)
+
+
+lm_model <- lm(`CO(GT)` ~ ., data = data_clean)
+
+# Calculating Variance Inflation Factors
+vif_values <- vif(lm_model)
+print(vif_values)
+```
+
+### Multicollinearity Assessment (VIF)
+
+To assess multicollinearity among predictors in the linear regression model, we calculated the Variance Inflation Factor (VIF) for each numeric variable.
+
+Several predictors exhibited high multicollinearity, with GVIF\^((1/2\*Df)) values exceeding the commonly used threshold of 5. Notably: - PT08.S2(NMHC) had a GVIF-adjusted value of 13.05 - PT08.S4(NO2) had a value of 11.50 - C6H6(GT) had a value of 10.69 - Others like T, AH, and PT08.S1(CO) were also above 6
+
+Given that this is a prediction-focused project and not primarily aimed at inference, We decided to retain strong predictors like C6H6(GT) due to their high correlation with the target variable (CO(GT)), while dropping variables with excessive multicollinearity but weaker direct relationships: - PT08.S2(NMHC) PT08.S4(NO2)
+
+We retained the remaining variables, including C6H6(GT) and PT08.S1(CO), and proceeded with modeling. Additionally, the inclusion of Random Forest—which is robust to multicollinearity, allows for fair comparison even when some correlated predictors are present.
+
+```{r}
+
+library(caTools)
+
+set.seed(123)
+
+# creating split index (70% train, 30% test)
+split <- sample.split(data_clean$`CO(GT)`, SplitRatio = 0.7)
+
+# subsetting  the data
+train_data <- subset(data_clean, split == TRUE)
+test_data  <- subset(data_clean, split == FALSE)
+
+# checking dimensions
+cat("Training set size:", nrow(train_data), "\n")
+cat("Testing set size:", nrow(test_data), "\n")
+```
+
+### Train-Test Split
+
+To evaluate and compare the performance of the two models (Linear Regression and Random Forest), we split the cleaned dataset into training and testing sets using a 70:30 ratio.
+
+-   The training set (70%) is used to fit both models.
+-   The testing set (30%) is reserved for evaluating the models on unseen data, allowing us to assess their generalizability.
+
+We used the sample.split() function from the caTools package with a fixed random seed (set.seed(123)) to ensure reproducibility of results. This approach ensures that model performance metrics reflect how well each model would likely perform on new, real-world data.
+
+```{r}
+# fitting linear regression model (excluding high-VIF predictors)
+lm_model <- lm(`CO(GT)` ~ `PT08.S1(CO)` + `C6H6(GT)` + `NOx(GT)` +
+                 `PT08.S3(NOx)` + `NO2(GT)` + `PT08.S5(O3)` +
+                 T + RH + AH,
+               data = train_data)
+
+
+summary(lm_model)
+```
+
+### Linear Regression Model Output Interpretation
+
+The linear regression model was fit to predict the hourly averaged carbon monoxide concentration (CO(GT)) in mg/m³ using selected predictor variables, after removing PT08.S2(NMHC) and PT08.S4(NO2) due to multicollinearity concerns.
+
+#### Coefficients:
+
+Each coefficient represents the estimated change in carbon monoxide concentration associated with a one-unit increase in the respective predictor, holding all other variables constant.
+
+-   Sensor PT08.S1(CO) (targeted to detect CO): A one-unit increase in the sensor reading is associated with a 0.00145 mg/m³ increase in CO concentration. This predictor is highly statistically significant (p \< 0.001).
+-   Benzene (C6H6(GT)): For every one µg/m³ increase in benzene, CO increases by 0.1377 mg/m³. This is a very strong and significant predictor (p \< 0.001).
+-   Nitrogen Oxides (NOx(GT)): Each additional ppb of NOx increases CO by 0.00105 mg/m³ (p \< 0.001).
+-   Sensor PT08.S3(NOx) (NOx sensor): This predictor shows a small but statistically significant positive association (p \< 0.001).
+-   Nitrogen Dioxide (NO2(GT)): Also significantly positively associated (p \< 0.001).
+-   Sensor PT08.S5(O3) (Ozone sensor): This sensor has a negative relationship with CO concentration, with a coefficient of -0.00032, and is significant (p \< 0.001).
+-   Temperature (T): Each °C increase is associated with a 0.0137 mg/m³ decrease in CO, statistically significant (p \< 0.001).
+-   Relative Humidity (RH) and Absolute Humidity (AH): These variables were not statistically significant at the 0.05 level, suggesting they may not meaningfully influence CO levels in a linear context.
+
+#### Model Fit:
+
+-   Multiple R-squared = 0.9138, meaning the model explains 91.38% of the variance in carbon monoxide levels — indicating very high predictive power on the training data.
+-   Adjusted R-squared = 0.9137 confirms this high fit while accounting for the number of predictors.
+-   Residual Standard Error = 0.4269, indicating the average prediction error is about 0.43 mg/m³.
+-   The model's F-statistic is highly significant (p \< 2.2e-16), meaning at least one predictor contributes meaningfully to the model.
+
+#### Summary:
+
+This linear regression model shows that carbon monoxide concentration is strongly influenced by multiple sensor readings, benzene levels, and nitrogen oxides. The high R\^2 value suggests a good fit to the training data. However, the presence of some statistically non-significant variables and the earlier noted multicollinearity reinforce the importance of comparing this model with a more flexible method like Random Forest.
+
+```{r}
+# predicting on test set
+lm_preds <- predict(lm_model, newdata = test_data)
+
+# actual values
+actuals <- test_data$`CO(GT)`
+
+library(Metrics)
+
+# calculating performance metrics
+lm_rmse <- rmse(actuals, lm_preds)
+lm_mae  <- mae(actuals, lm_preds)
+lm_r2   <- 1 - sum((actuals - lm_preds)^2) / sum((actuals - mean(actuals))^2)
+
+cat("Linear Regression Model Performance (Test Set):\n")
+cat("R-squared:", round(lm_r2, 4), "\n")
+cat("RMSE     :", round(lm_rmse, 4), "\n")
+cat("MAE      :", round(lm_mae, 4), "\n")
+```
+
+### Linear Regression Model Performance (Test Set)
+
+The performance of the linear regression model on the testing set was assessed using three key metrics:
+
+-   R-squared = 0.8974:\
+    This means that approximately 89.74% of the variance in carbon monoxide concentration (CO(GT)) in the test data is explained by the model. This indicates a strong predictive ability, suggesting the model generalizes well to new, unseen data.
+
+-   Root Mean Square Error (RMSE) = 0.4527:\
+    On average, the model's predictions deviate from the actual CO values by about 0.45 mg/m³. RMSE is useful for understanding the typical size of errors, with larger errors penalized more heavily.
+
+-   Mean Absolute Error (MAE) = 0.2731:\
+    The average absolute difference between predicted and actual CO values is 0.27 mg/m³, indicating the model's typical prediction error is relatively low.
+
+Overall, these results suggest that the linear regression model performs very well on the test set. However, as the data may contain non-linear relationships and multicollinearity, we will now compare its performance to a more flexible model: Random Forest.
+
+```{r}
+library(randomForest)
+train_rf <- train_data
+test_rf  <- test_data
+
+names(train_rf) <- make.names(names(train_rf))
+names(test_rf)  <- make.names(names(test_rf))
+
+
+rf_model <- randomForest(
+  CO.GT. ~ PT08.S1.CO. + C6H6.GT. + NOx.GT. +
+            PT08.S3.NOx. + NO2.GT. + PT08.S5.O3. +
+            T + RH + AH,
+  data = train_rf,
+  ntree = 500,
+  importance = TRUE
+)
+# printing the model
+print(rf_model)
+
+# prediction
+rf_preds <- predict(rf_model, newdata = test_rf)
+
+# evaluation
+library(Metrics)
+rf_rmse <- rmse(test_rf$CO.GT., rf_preds)
+rf_mae  <- mae(test_rf$CO.GT., rf_preds)
+rf_r2   <- 1 - sum((test_rf$CO.GT. - rf_preds)^2) / sum((test_rf$CO.GT. - mean(test_rf$CO.GT.))^2)
+
+
+cat("Random Forest Model Performance (Test Set):\n")
+cat("R-squared:", round(rf_r2, 4), "\n")
+cat("RMSE     :", round(rf_rmse, 4), "\n")
+cat("MAE      :", round(rf_mae, 4), "\n")
+```
+
+### Random Forest Model Performance
+
+A Random Forest regression model was trained using 500 trees to predict hourly averaged carbon monoxide concentration (CO(GT)) based on sensor responses and environmental variables. The model used 3 randomly selected predictors at each split and was evaluated both on the test set and internally via Out-of-Bag (OOB) estimates.
+
+#### Test Set Performance:
+
+-   R-squared: 0.9226\
+    -The model explains approximately 92.26% of the variance in CO levels on unseen test data.
+-   RMSE (Root Mean Square Error): 0.3932\
+    -Indicates the average prediction error is about 0.39 mg/m³.
+-   MAE (Mean Absolute Error): 0.2443\
+    -On average, the absolute prediction error is about 0.24 mg/m³.
+
+#### Out-of-Bag (OOB) Performance:
+
+-   OOB Mean Squared Error: 0.1545
+-   OOB RMSE: sqaure root of 0.1545 = 0.3930
+-   \% Variance Explained (OOB): 92.68%
+
+The OOB RMSE closely matches the test set RMSE, indicating that the model generalizes well and is not overfitting.
+
+```{r}
+
+library(rpart)
+library(rpart.plot)
+
+# fitting a single decision tree 
+tree_model <- rpart(
+  `CO(GT)` ~ `PT08.S1(CO)` + `C6H6(GT)` + `NOx(GT)` +
+              `PT08.S3(NOx)` + `NO2(GT)` + `PT08.S5(O3)` +
+              T + RH + AH,
+  data = train_data,
+  method = "anova"
+)
+
+# plotting the tree
+rpart.plot(tree_model, type = 2, extra = 101, fallen.leaves = TRUE,
+           main = "Regression Tree for Predicting CO(GT)")
+```
+
+### Interpretation of the Regression Tree
+
+The regression tree above represents a simple, interpretable model that predicts carbon monoxide concentration (CO(GT)) using only benzene concentration (C6H6(GT)) as a splitting variable.
+
+-   The tree starts with the full dataset (n = 4864) with an average CO level of 2.2 mg/m³.
+
+-   The first split is at C6H6(GT) \< 14, dividing the data into:
+
+    -Left branch (n = 3631, 75% of data): lower benzene levels
+
+    -Right branch (n = 1233, 25%): higher benzene levels, with an average CO level of 4.1 mg/m³
+
+As we move further down: - Lower benzene levels (C6H6(GT) \< 4.3) correspond to low CO levels, with terminal nodes around 0.77 to 1.3 mg/m³ - Higher benzene levels (C6H6(GT) \> 24) are associated with the highest CO values, reaching up to 7.7 mg/m³ on average
+
+Each terminal node (leaf) shows: - The predicted average CO level - The number of observations (n) in that group - The percentage of the full dataset represented
+
+This tree reveals a strong monotonic relationship between benzene and carbon monoxide, consistent with the correlation plots. Though it uses just one predictor, the tree helps illustrate how decision trees structure the prediction space using a series of simple, interpretable rules.
+
+```{r}
+# Variable Importance Plot
+varImpPlot(rf_model,
+           main = "Variable Importance in Random Forest Model",
+           type = 1,  
+           pch = 16,
+           col = "steelblue")
+```
+
+### Variable Importance in Random Forest Model
+
+The plot above displays the importance of each predictor variable in estimating carbon monoxide concentration (CO(GT)). Higher values indicate stronger influence on prediction accuracy.
+
+Key observations:
+
+-   C6H6(GT) (Benzene concentration) stands out as the most influential predictor. This aligns with earlier visualizations and regression results, reinforcing its strong association with CO levels.
+-   Surprisingly, temperature (T) and absolute humidity (AH) also contribute significantly to model performance, suggesting environmental factors influence pollutant behavior.
+-   Among sensor responses, PT08.S1(CO), PT08.S3(NOx), and PT08.S5(O3) show lower but still meaningful importance.
+-   Relative humidity (RH) and NOx/NO2 concentrations fall in the middle range of importance.
+
+This ranking supports the conclusion that a mix of chemical and environmental variables jointly drive CO concentration, and Random Forest effectively captures their nonlinear relationships.
+
+## Results & Performance Evaluation
+
+To evaluate the predictive performance of the two models — Multiple Linear Regression and Random Forest Regression — we compared their accuracy on the test dataset using three standard metrics:\
+- R-squared (explained variance)\
+- Root Mean Squared Error (RMSE)\
+- Mean Absolute Error (MAE)
+
+The results are summarized below:
+
+| Metric    | Linear Regression | Random Forest |
+|-----------|-------------------|---------------|
+| R-squared | 0.8974            | 0.9226        |
+| RMSE      | 0.4527            | 0.3932        |
+| MAE       | 0.2731            | 0.2443        |
+
+### Interpretation
+
+The Random Forest model outperformed the linear regression model across all evaluation metrics: - It achieved a higher R-squared, indicating better overall fit and greater ability to explain the variance in CO concentrations. - It had lower RMSE and MAE, meaning more accurate and less biased predictions on the test set.
+
+Furthermore, the Random Forest model yielded a high Out-of-Bag (OOB) R-squared of 92.68% and an OOB RMSE of approximately 0.393, which closely aligns with the external test set performance — reinforcing that the model generalizes well without overfitting.
+
+In contrast, while the linear regression model performed reasonably well, it assumes linear relationships and was more sensitive to multicollinearity. After removing two high-VIF variables (PT08.S2(NMHC) and PT08.S4(NO2)), its performance still lagged behind the more flexible, non-parametric Random Forest model.
+
+These findings confirm that Random Forest is more robust and better suited for capturing the complex, nonlinear interactions present in air quality sensor data.
+
+## Conclusion & Discussion
+
+This project aimed to predict hourly carbon monoxide (CO) concentration levels (CO(GT)) using sensor-based and environmental features collected from an air quality monitoring device. Two predictive models were evaluated: a Multiple Linear Regression model and a Random Forest regression model.
+
+### Summary of Findings:
+
+-   The Random Forest model consistently outperformed linear regression in terms of R-squared, RMSE, and MAE.
+-   Benzene concentration (C6H6(GT)) emerged as the most influential predictor, supported by both correlation analysis and variable importance scores.
+-   Temperature, humidity, and multiple sensor readings also played significant roles, highlighting the value of both environmental and chemical measurements.
+-   The decision tree visualization provided interpretable rules that reinforced the importance of C6H6(GT) and revealed clear thresholds associated with higher CO levels.
+-   Random Forest's out-of-bag validation indicated minimal overfitting and reliable generalization.
+
+### Strengths:
+
+-   The project demonstrates the importance of using ensemble methods like Random Forest to capture nonlinearities and interactions in sensor-driven environmental data.
+-   Robust data cleaning and multicollinearity handling ensured the integrity and reliability of model inputs.
+-   Visualizations such as correlation heatmaps and importance plots aided in both variable selection and interpretation.
+
+### Limitations:
+
+-   The analysis excluded NMHC(GT) due to excessive missingness, which may have reduced overall model informativeness.
+-   The models assume stable sensor behavior over time, whereas sensor drift or calibration loss could affect prediction accuracy.
+
+### Future Work:
+
+-   Explore additional ensemble techniques such as Gradient Boosting Machines or XGBoost.
+-   Evaluate long-term sensor degradation effects and test the model's portability to other locations or seasons.
+
+In conclusion, the Random Forest model proved to be a robust and effective approach for predicting CO levels based on multisensor and environmental data. The combination of accurate predictions, model interpretability, and practical insights makes it a strong candidate for deployment in real-world air quality monitoring systems.\
+
+## References
+
+Vito, S. D. (2008). *Air Quality* [Dataset]. UCI Machine Learning Repository. <https://doi.org/10.24432/C59K5F>
